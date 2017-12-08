@@ -26,8 +26,6 @@
 *.a
 *.lib
 
-projects/tmp/*
-
 # Executables
 *.out
 *.app
