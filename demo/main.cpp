@@ -6,11 +6,14 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+
+//added by tigra
+#define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+
 #include <memory>
 #include <vector>
 #pragma comment(lib, "opengl32.lib")
-
 
 HWND g_hWnd;
 HDC g_hDC;

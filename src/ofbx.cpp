@@ -291,6 +291,7 @@ float DataView::toFloat() const
 
 bool DataView::operator==(const char* rhs) const
 {
+	//tigra: compare byte by byte
 	const char* c = rhs;
 	const char* c2 = (const char*)begin;
 	while (*c && c2 != (const char*)end)
@@ -365,6 +366,9 @@ struct Element : IElement
 
 static const Element* findChild(const Element& element, const char* id)
 {
+	//tigra: compare by id - byte by byte
+	//tigra todo: 1. calc hash  2. find hash value  3. после ->id= добавить расчет и сохранение хэша
+	
 	Element* const* iter = &element.child;
 	while (*iter)
 	{
