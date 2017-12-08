@@ -6,6 +6,7 @@ namespace ofbx
 
 
 typedef unsigned char u8;
+typedef unsigned short u16;
 typedef unsigned int u32;
 typedef unsigned long long u64;
 
@@ -44,16 +45,26 @@ struct Quat
 };
 
 
+struct Color
+{
+	float r, g, b;
+};
+
+
 struct DataView
 {
 	const u8* begin = nullptr;
 	const u8* end = nullptr;
+	bool is_binary = true;
 
 	bool operator!=(const char* rhs) const { return !(*this == rhs); }
 	bool operator==(const char* rhs) const;
 
 	u64 toLong() const;
+	int toInt() const;
+	u32 toU32() const;
 	double toDouble() const;
+	float toFloat() const;
 	
 	template <int N>
 	void toString(char(&out)[N]) const
@@ -90,10 +101,10 @@ struct IElementProperty
 	virtual IElementProperty* getNext() const = 0;
 	virtual DataView getValue() const = 0;
 	virtual int getCount() const = 0;
-	virtual void getValues(double* values, int max_size) const = 0;
-	virtual void getValues(int* values, int max_size) const = 0;
-	virtual void getValues(float* values, int max_size) const = 0;
-	virtual void getValues(u64* values, int max_size) const = 0;
+	virtual bool getValues(double* values, int max_size) const = 0;
+	virtual bool getValues(int* values, int max_size) const = 0;
+	virtual bool getValues(float* values, int max_size) const = 0;
+	virtual bool getValues(u64* values, int max_size) const = 0;
 };
 
 
@@ -103,6 +114,17 @@ struct IElement
 	virtual IElement* getSibling() const = 0;
 	virtual DataView getID() const = 0;
 	virtual IElementProperty* getFirstProperty() const = 0;
+};
+
+
+enum class RotationOrder {
+	EULER_XYZ,
+	EULER_XZY,
+	EULER_YZX,
+	EULER_YXZ,
+	EULER_ZXY,
+	EULER_ZYX,
+    SPHERIC_XYZ // Currently unsupported. Treated as EULER_XYZ.
 };
 
 
@@ -123,7 +145,7 @@ struct Object
 		TEXTURE,
 		LIMB_NODE,
 		NULL_NODE,
-		NOTE_ATTRIBUTE,
+		NODE_ATTRIBUTE,
 		CLUSTER,
 		SKIN,
 		ANIMATION_STACK,
@@ -138,14 +160,12 @@ struct Object
 	virtual Type getType() const = 0;
 	
 	const IScene& getScene() const;
-	int resolveObjectLinkCount() const;
-	int resolveObjectLinkCount(Type type) const;
 	Object* resolveObjectLink(int idx) const;
 	Object* resolveObjectLink(Type type, const char* property, int idx) const;
 	Object* resolveObjectLinkReverse(Type type) const;
-	IElement* resolveProperty(const char* name) const;
 	Object* getParent() const;
 
+    RotationOrder getRotationOrder() const;
 	Vec3 getRotationOffset() const;
 	Vec3 getRotationPivot() const;
 	Vec3 getPostRotation() const;
@@ -157,7 +177,8 @@ struct Object
 	Vec3 getLocalScaling() const;
 	Matrix getGlobalTransform() const;
 	Matrix evalLocal(const Vec3& translation, const Vec3& rotation) const;
-	const AnimationCurveNode* getCurveNode(const char* prop, const AnimationLayer& layer) const;
+	bool isNode() const { return is_node; }
+
 
 	template <typename T> T* resolveObjectLink(int idx) const
 	{
@@ -167,10 +188,11 @@ struct Object
 	u64 id;
 	char name[128];
 	const IElement& element;
+	const Object* node_attribute;
 
 protected:
-	const Scene& scene;
 	bool is_node;
+	const Scene& scene;
 };
 
 
@@ -198,6 +220,7 @@ struct Material : Object
 
 	Material(const Scene& _scene, const IElement& _element);
 
+	virtual Color getDiffuseColor() const = 0;
 	virtual const Texture* getTexture(Texture::TextureType type) const = 0;
 };
 
@@ -214,7 +237,7 @@ struct Cluster : Object
 	virtual int getWeightsCount() const = 0;
 	virtual Matrix getTransformMatrix() const = 0;
 	virtual Matrix getTransformLinkMatrix() const = 0;
-	virtual Object* getLink() const = 0;
+	virtual const Object* getLink() const = 0;
 };
 
 
@@ -225,13 +248,13 @@ struct Skin : Object
 	Skin(const Scene& _scene, const IElement& _element);
 
 	virtual int getClusterCount() const = 0;
-	virtual Cluster* getCluster(int idx) const = 0;
+	virtual const Cluster* getCluster(int idx) const = 0;
 };
 
 
 struct NodeAttribute : Object
 {
-	static const Type s_type = Type::NOTE_ATTRIBUTE;
+	static const Type s_type = Type::NODE_ATTRIBUTE;
 
 	NodeAttribute(const Scene& _scene, const IElement& _element);
 
@@ -253,6 +276,7 @@ struct Geometry : Object
 	virtual const Vec4* getColors() const = 0;
 	virtual const Vec3* getTangents() const = 0;
 	virtual const Skin* getSkin() const = 0;
+	virtual const int* getMaterials() const = 0;
 };
 
 
@@ -264,7 +288,8 @@ struct Mesh : Object
 
 	virtual const Geometry* getGeometry() const = 0;
 	virtual Matrix getGeometricMatrix() const = 0;
-	virtual const Material* getMaterial() const = 0;
+	virtual const Material* getMaterial(int idx) const = 0;
+	virtual int getMaterialCount() const = 0;
 };
 
 
@@ -282,6 +307,8 @@ struct AnimationLayer : Object
 	static const Type s_type = Type::ANIMATION_LAYER;
 
 	AnimationLayer(const Scene& _scene, const IElement& _element);
+
+	virtual const AnimationCurveNode* getCurveNode(const Object& bone, const char* property) const = 0;
 };
 
 
@@ -321,18 +348,24 @@ struct TakeInfo
 struct IScene
 {
 	virtual void destroy() = 0;
-	virtual IElement* getRootElement() const = 0;
-	virtual Object* getRoot() const = 0;
+	virtual const IElement* getRootElement() const = 0;
+	virtual const Object* getRoot() const = 0;
 	virtual const TakeInfo* getTakeInfo(const char* name) const = 0;
-	virtual ~IScene() {}
 	virtual int getMeshCount() const = 0;
+	virtual float getSceneFrameRate() const = 0;
 	virtual const Mesh* getMesh(int index) const = 0;
 	virtual int getAnimationStackCount() const = 0;
 	virtual const AnimationStack* getAnimationStack(int index) const = 0;
+	virtual const Object *const * getAllObjects() const = 0;
+	virtual int getAllObjectCount() const = 0;
+
+protected:
+	virtual ~IScene() {}
 };
 
 
 IScene* load(const u8* data, int size);
+const char* getError();
 
 
 } // namespace ofbx

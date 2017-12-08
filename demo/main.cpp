@@ -47,7 +47,7 @@ void catProperty(char(&out)[N], const ofbx::IElementProperty& prop)
 	{
 		case ofbx::IElementProperty::DOUBLE: sprintf_s(tmp, "%f", prop.getValue().toDouble()); break;
 		case ofbx::IElementProperty::LONG: sprintf_s(tmp, "%" PRId64, prop.getValue().toLong()); break;
-		case ofbx::IElementProperty::INTEGER: sprintf_s(tmp, "%d", *(int*)prop.getValue().begin); break;
+		case ofbx::IElementProperty::INTEGER: sprintf_s(tmp, "%d", prop.getValue().toInt()); break;
 		case ofbx::IElementProperty::STRING: prop.getValue().toString(tmp); break;
 		default: sprintf_s(tmp, "Type: %c", (char)prop.getType()); break;
 	}
@@ -114,10 +114,10 @@ void showGUI(ofbx::IElementProperty& prop)
 	char tmp[256];
 	switch (prop.getType())
 	{
-		case ofbx::IElementProperty::LONG: ImGui::Text("Long: %" PRId64, *(ofbx::u64*)prop.getValue().begin); break;
-		case ofbx::IElementProperty::FLOAT: ImGui::Text("Float: %f", *(float*)prop.getValue().begin); break;
-		case ofbx::IElementProperty::DOUBLE: ImGui::Text("Double: %f", *(double*)prop.getValue().begin); break;
-		case ofbx::IElementProperty::INTEGER: ImGui::Text("Integer: %d", *(int*)prop.getValue().begin); break;
+		case ofbx::IElementProperty::LONG: ImGui::Text("Long: %" PRId64, prop.getValue().toLong()); break;
+		case ofbx::IElementProperty::FLOAT: ImGui::Text("Float: %f", prop.getValue().toFloat()); break;
+		case ofbx::IElementProperty::DOUBLE: ImGui::Text("Double: %f", prop.getValue().toDouble()); break;
+		case ofbx::IElementProperty::INTEGER: ImGui::Text("Integer: %d", prop.getValue().toInt()); break;
 		case ofbx::IElementProperty::ARRAY_FLOAT: showArray<float>("float array", "%f", prop); break;
 		case ofbx::IElementProperty::ARRAY_DOUBLE: showArray<double>("double array", "%f", prop); break;
 		case ofbx::IElementProperty::ARRAY_INT: showArray<int>("int array", "%d", prop); break;
@@ -148,7 +148,7 @@ void showObjectGUI(const ofbx::Object& object)
 		case ofbx::Object::Type::TEXTURE: label = "texture"; break;
 		case ofbx::Object::Type::NULL_NODE: label = "null"; break;
 		case ofbx::Object::Type::LIMB_NODE: label = "limb node"; break;
-		case ofbx::Object::Type::NOTE_ATTRIBUTE: label = "node attribute"; break;
+		case ofbx::Object::Type::NODE_ATTRIBUTE: label = "node attribute"; break;
 		case ofbx::Object::Type::CLUSTER: label = "cluster"; break;
 		case ofbx::Object::Type::SKIN: label = "skin"; break;
 		case ofbx::Object::Type::ANIMATION_STACK: label = "animation stack"; break;
@@ -186,7 +186,7 @@ void showObjectsGUI(const ofbx::IScene& scene)
 		ImGui::End();
 		return;
 	}
-	ofbx::Object* root = scene.getRoot();
+	const ofbx::Object* root = scene.getRoot();
 	if (root) showObjectGUI(*root);
 
 	int count = scene.getAnimationStackCount();
@@ -293,28 +293,33 @@ bool saveAsOBJ(ofbx::IScene& scene, const char* path)
 
 void onGUI()
 {
+
 	auto& io = ImGui::GetIO();
 	io.KeyShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 	io.KeyCtrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 	io.KeyCtrl = (GetKeyState(VK_MENU) & 0x8000) != 0;
 
 	ImGui::NewFrame();
-	ImGui::RootDock(ImVec2(0, 0), ImGui::GetIO().DisplaySize);
-	if (ImGui::Begin("Elements"))
-	{
-		ofbx::IElement* root = g_scene->getRootElement();
-		if (root && root->getFirstChild()) showGUI(*root->getFirstChild());
-	}
-	ImGui::End();
 
-	if (ImGui::Begin("Properties") && g_selected_element)
+	if (g_scene)
 	{
-		ofbx::IElementProperty* prop = g_selected_element->getFirstProperty();
-		if(prop) showGUI(*prop);
-	}
-	ImGui::End();
+		ImGui::RootDock(ImVec2(0, 0), ImGui::GetIO().DisplaySize);
+		if (ImGui::Begin("Elements"))
+		{
+			const ofbx::IElement* root = g_scene->getRootElement();
+			if (root && root->getFirstChild()) showGUI(*root->getFirstChild());
+		}
+		ImGui::End();
 
-	showObjectsGUI(*g_scene);
+		if (ImGui::Begin("Properties") && g_selected_element)
+		{
+			ofbx::IElementProperty* prop = g_selected_element->getFirstProperty();
+			if (prop) showGUI(*prop);
+		}
+		ImGui::End();
+
+		showObjectsGUI(*g_scene);
+	}
 
 	ImGui::Render();
 }
