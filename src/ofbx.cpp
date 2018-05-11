@@ -191,15 +191,15 @@ static Matrix getRotationMatrix(const Vec3& euler, RotationOrder order)
 }
 
 
-static double fbxTimeToSeconds(u64 value)
+static double fbxTimeToSeconds(i64 value)
 {
 	return double(value) / 46186158000L;
 }
 
 
-static u64 secondsToFbxTime(double value)
+static i64 secondsToFbxTime(double value)
 {
-	return u64(value * 46186158000L);
+	return i64(value * 46186158000L);
 }
 
 
@@ -234,14 +234,27 @@ template <int SIZE> static bool copyString(char (&destination)[SIZE], const char
 }
 
 
-u64 DataView::toLong() const
+u64 DataView::toU64() const
 {
 	if (is_binary)
 	{
 		assert(end - begin == sizeof(u64));
 		return *(u64*)begin;
 	}
-	return atol((const char*)begin);
+	static_assert(sizeof(unsigned long long) >= sizeof(u64), "can't use strtoull");
+	return strtoull((const char*)begin, nullptr, 10);
+}
+
+
+i64 DataView::toI64() const
+{
+	if (is_binary)
+	{
+		assert(end - begin == sizeof(i64));
+		return *(i64*)begin;
+	}
+	static_assert(sizeof(long long) >= sizeof(i64), "can't use atoll");
+	return atoll((const char*)begin);
 }
 
 
@@ -330,6 +343,8 @@ struct Property : IElementProperty
 	bool getValues(float* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
 
 	bool getValues(u64* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
+	
+	bool getValues(i64* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
 
 	bool getValues(int* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
 
@@ -368,7 +383,6 @@ static const Element* findChild(const Element& element, const char* id)
 {
 	//tigra: compare by id - byte by byte
 	//tigra todo: 1. calc hash  2. find hash value  3. после ->id= добавить расчет и сохранение хэша
-	
 	Element* const* iter = &element.child;
 	while (*iter)
 	{
@@ -442,13 +456,12 @@ static bool decompress(const u8* in, size_t in_size, u8* out, size_t out_size)
 	mz_stream stream = {};
 	mz_inflateInit(&stream);
 
-	int status;
 	stream.avail_in = (int)in_size;
 	stream.next_in = in;
 	stream.avail_out = (int)out_size;
 	stream.next_out = out;
 
-	status = mz_inflate(&stream, Z_SYNC_FLUSH);
+	int status = mz_inflate(&stream, Z_SYNC_FLUSH);
 
 	if (status != Z_STREAM_END) return false;
 
@@ -741,7 +754,7 @@ static OptionalError<Property*> readTextProperty(Cursor* cursor)
 			{
 				++cursor->current;
 			}
-			if (cursor->current < cursor->end && *cursor->current == 'e')
+			if (cursor->current < cursor->end && (*cursor->current == 'e' || *cursor->current == 'E'))
 			{
 				// 10.5e-013
 				++cursor->current;
@@ -777,13 +790,20 @@ static OptionalError<Property*> readTextProperty(Cursor* cursor)
 		if (cursor->current < cursor->end) ++cursor->current; // skip ':'
 		skipInsignificantWhitespaces(cursor);
 		prop->value.begin = cursor->current;
-		prop->count = 1;
+		prop->count = 0;
+		bool is_any = false;
 		while (cursor->current < cursor->end && *cursor->current != '}')
 		{
-			if (*cursor->current == ',') ++prop->count;
+			if (*cursor->current == ',')
+			{
+				if (is_any) ++prop->count;
+				is_any = false;
+			}
+			else if (!isspace(*cursor->current) && *cursor->current != '\n') is_any = true;
 			if (*cursor->current == '.') prop->type = 'd';
 			++cursor->current;
 		}
+		if (is_any) ++prop->count;
 		prop->value.end = cursor->current;
 		if (cursor->current < cursor->end) ++cursor->current; // skip '}'
 		return prop.release();
@@ -920,7 +940,6 @@ static OptionalError<Element*> tokenize(const u8* data, size_t size)
 		if (!*element) return root;
 		element = &(*element)->sibling;
 	}
-	return root;
 }
 
 
@@ -1097,7 +1116,7 @@ struct GeometryImpl : Geometry
 
 	std::vector<Vec3> vertices;
 	std::vector<Vec3> normals;
-	std::vector<Vec2> uvs;
+	std::vector<Vec2> uvs[s_uvs_max];
 	std::vector<Vec4> colors;
 	std::vector<Vec3> tangents;
 	std::vector<int> materials;
@@ -1117,7 +1136,7 @@ struct GeometryImpl : Geometry
 	int getVertexCount() const override { return (int)vertices.size(); }
 	const Vec3* getVertices() const override { return &vertices[0]; }
 	const Vec3* getNormals() const override { return normals.empty() ? nullptr : &normals[0]; }
-	const Vec2* getUVs() const override { return uvs.empty() ? nullptr : &uvs[0]; }
+	const Vec2* getUVs(int index = 0) const override { return index < 0 || index >= s_uvs_max || uvs[index].empty() ? nullptr : &uvs[index][0]; }
 	const Vec4* getColors() const override { return colors.empty() ? nullptr : &colors[0]; }
 	const Vec3* getTangents() const override { return tangents.empty() ? nullptr : &tangents[0]; }
 	const Skin* getSkin() const override { return skin; }
@@ -1273,7 +1292,6 @@ struct AnimationStackImpl : AnimationStack
 
 	const AnimationLayer* getLayer(int index) const override
 	{
-		assert(index == 0);
 		return resolveObjectLink<AnimationLayer>(index);
 	}
 
@@ -1290,10 +1308,10 @@ struct AnimationCurveImpl : AnimationCurve
 	}
 
 	int getKeyCount() const override { return (int)times.size(); }
-	const u64* getKeyTime() const override { return &times[0]; }
+	const i64* getKeyTime() const override { return &times[0]; }
 	const float* getKeyValue() const override { return &values[0]; }
 
-	std::vector<u64> times;
+	std::vector<i64> times;
 	std::vector<float> values;
 	Type getType() const override { return Type::ANIMATION_CURVE; }
 };
@@ -1381,6 +1399,7 @@ struct Scene : IScene
 	int getAnimationStackCount() const override { return (int)m_animation_stacks.size(); }
 	int getMeshCount() const override { return (int)m_meshes.size(); }
 	float getSceneFrameRate() const override { return m_scene_frame_rate; }
+	const GlobalSettings* getGlobalSettings() const override { return &m_settings; }
 
 	const Object* const* getAllObjects() const override { return m_all_objects.empty() ? nullptr : &m_all_objects[0]; }
 
@@ -1435,6 +1454,7 @@ struct Scene : IScene
 	Element* m_root_element = nullptr;
 	Root* m_root = nullptr;
 	float m_scene_frame_rate = -1;
+	GlobalSettings m_settings;
 	std::unordered_map<u64, ObjectPair> m_object_map;
 	std::vector<Object*> m_all_objects;
 	std::vector<Mesh*> m_meshes;
@@ -1453,14 +1473,20 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 	}
 
 
+	const Object* getBone() const override
+	{
+		return bone;
+	}
+
+
 	Vec3 getNodeLocalTransform(double time) const override
 	{
-		u64 fbx_time = secondsToFbxTime(time);
+		i64 fbx_time = secondsToFbxTime(time);
 
-		auto getCoord = [](const Curve& curve, u64 fbx_time) {
+		auto getCoord = [](const Curve& curve, i64 fbx_time) {
 			if (!curve.curve) return 0.0f;
 
-			const u64* times = curve.curve->getKeyTime();
+			const i64* times = curve.curve->getKeyTime();
 			const float* values = curve.curve->getKeyValue();
 			int count = curve.curve->getKeyCount();
 
@@ -1511,6 +1537,12 @@ struct AnimationLayerImpl : AnimationLayer
 
 	Type getType() const override { return Type::ANIMATION_LAYER; }
 
+
+	const AnimationCurveNode* getCurveNode(int index) const override
+	{
+		if (index >= curve_nodes.size() || index < 0) return nullptr;
+		return curve_nodes[index];
+	}
 
 
 	const AnimationCurveNode* getCurveNode(const Object& bone, const char* prop) const override
@@ -1595,7 +1627,7 @@ static OptionalError<Object*> parseLimbNode(const Scene& scene, const Element& e
 	if (!element.first_property
 		|| !element.first_property->next
 		|| !element.first_property->next->next
-		|| element.first_property->next->next->value != "LimbNode")
+		|| element.first_property->next->next->value != "LimbNode") //tigra: hashed!
 	{
 		return Error("Invalid limb node");
 	}
@@ -1610,7 +1642,7 @@ static OptionalError<Object*> parseMesh(const Scene& scene, const Element& eleme
 	if (!element.first_property
 		|| !element.first_property->next
 		|| !element.first_property->next->next
-		|| element.first_property->next->next->value != "Mesh")
+		|| element.first_property->next->next->value != "Mesh") //tigra: hashed!
 	{
 		return Error("Invalid mesh");
 	}
@@ -1629,7 +1661,7 @@ static OptionalError<Object*> parseMaterial(const Scene& scene, const Element& e
 	{
 		if (prop->id == "P" && prop->first_property)
 		{
-			if (prop->first_property->value == "DiffuseColor")
+			if (prop->first_property->value == "DiffuseColor") //tigra: hashed!
 			{
 				material->diffuse_color.r = (float)prop->getProperty(4)->getValue().toDouble();
 				material->diffuse_color.g = (float)prop->getProperty(5)->getValue().toDouble();
@@ -1700,7 +1732,17 @@ template <> const char* fromString<int>(const char* str, const char* end, int* v
 
 template <> const char* fromString<u64>(const char* str, const char* end, u64* val)
 {
-	*val = atol(str);
+	*val = strtoull(str, nullptr, 10);
+	const char* iter = str;
+	while (iter < end && *iter != ',') ++iter;
+	if (iter < end) ++iter; // skip ','
+	return (const char*)iter;
+}
+
+
+template <> const char* fromString<i64>(const char* str, const char* end, i64* val)
+{
+	*val = atoll(str);
 	const char* iter = str;
 	while (iter < end && *iter != ',') ++iter;
 	if (iter < end) ++iter; // skip ','
@@ -1772,7 +1814,7 @@ template <> const char* fromString<Matrix>(const char* str, const char* end, Mat
 template<typename T> static void parseTextArray(const Property& property, std::vector<T>* out)
 {
 	const u8* iter = property.value.begin;
-	while (iter < property.value.end)
+	for(int i = 0; i < property.count; ++i)
 	{
 		T val;
 		iter = (const u8*)fromString<T>((const char*)iter, (const char*)property.value.end, &val);
@@ -1871,16 +1913,16 @@ static bool parseVertexData(const Element& element,
 
 	if (mapping_element && mapping_element->first_property)
 	{
-		if (mapping_element->first_property->value == "ByPolygonVertex")
+		if (mapping_element->first_property->value == "ByPolygonVertex") //tigra: hashed!
 		{
 			*mapping = GeometryImpl::BY_POLYGON_VERTEX;
 		}
-		else if (mapping_element->first_property->value == "ByPolygon")
+		else if (mapping_element->first_property->value == "ByPolygon") //tigra: hashed!
 		{
 			*mapping = GeometryImpl::BY_POLYGON;
 		}
-		else if (mapping_element->first_property->value == "ByVertice" ||
-					mapping_element->first_property->value == "ByVertex")
+		else if (mapping_element->first_property->value == "ByVertice" || //tigra: hashed!
+					mapping_element->first_property->value == "ByVertex") //tigra: hashed!
 		{
 			*mapping = GeometryImpl::BY_VERTEX;
 		}
@@ -1891,7 +1933,7 @@ static bool parseVertexData(const Element& element,
 	}
 	if (reference_element && reference_element->first_property)
 	{
-		if (reference_element->first_property->value == "IndexToDirect")
+		if (reference_element->first_property->value == "IndexToDirect") //tigra: hashed!
 		{
 			const Element* indices_element = findChild(element, index_name);
 			if (indices_element && indices_element->first_property)
@@ -1899,7 +1941,7 @@ static bool parseVertexData(const Element& element,
 				if (!parseBinaryArray(*indices_element->first_property, out_indices)) return false;
 			}
 		}
-		else if (reference_element->first_property->value != "Direct")
+		else if (reference_element->first_property->value != "Direct") //tigra: hashed!
 		{
 			return false;
 		}
@@ -1913,7 +1955,7 @@ static void splat(std::vector<T>* out,
 	GeometryImpl::VertexDataMapping mapping,
 	const std::vector<T>& data,
 	const std::vector<int>& indices,
-	const std::vector<int>& to_old_vertices)
+	const std::vector<int>& original_indices)
 {
 	assert(out);
 	assert(!data.empty());
@@ -1942,12 +1984,14 @@ static void splat(std::vector<T>* out,
 		// uv0 uv1 ...
 		assert(indices.empty());
 
-		out->resize(to_old_vertices.size());
+		out->resize(original_indices.size());
 
 		int data_size = (int)data.size();
-		for (int i = 0, c = (int)to_old_vertices.size(); i < c; ++i)
+		for (int i = 0, c = (int)original_indices.size(); i < c; ++i)
 		{
-			if(to_old_vertices[i] < data_size) (*out)[i] = data[to_old_vertices[i]];
+			int idx = original_indices[i];
+			if (idx < 0) idx = -idx - 1;
+			if(idx < data_size) (*out)[i] = data[idx];
 			else (*out)[i] = T();
 		}
 	}
@@ -2010,7 +2054,7 @@ static int getTriCountFromPoly(const std::vector<int>& indices, int* idx)
 	while (indices[*idx + 1 + count] >= 0)
 	{
 		++count;
-	};
+	}
 
 	*idx = *idx + 2 + count;
 	return count;
@@ -2079,8 +2123,8 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 
 		if (!mapping_element || !reference_element) return Error("Invalid LayerElementMaterial");
 
-		if (mapping_element->first_property->value == "ByPolygon" &&
-			reference_element->first_property->value == "IndexToDirect")
+		if (mapping_element->first_property->value == "ByPolygon" && //tigra: hashed!
+			reference_element->first_property->value == "IndexToDirect") //tigra: hashed!
 		{
 			geom->materials.reserve(geom->vertices.size() / 3);
 			for (int& i : geom->materials) i = -1;
@@ -2102,21 +2146,35 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 		}
 		else
 		{
-			if (mapping_element->first_property->value != "AllSame") return Error("Mapping not supported");
+			if (mapping_element->first_property->value != "AllSame") return Error("Mapping not supported"); //tigra: hashed!
 		}
 	}
 
 	const Element* layer_uv_element = findChild(element, "LayerElementUV");
-	if (layer_uv_element)
-	{
-		std::vector<Vec2> tmp;
-		std::vector<int> tmp_indices;
-		GeometryImpl::VertexDataMapping mapping;
-		if (!parseVertexData(*layer_uv_element, "UV", "UVIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid UVs");
-		geom->uvs.resize(tmp_indices.empty() ? tmp.size() : tmp_indices.size());
-		splat(&geom->uvs, mapping, tmp, tmp_indices, geom->to_old_vertices);
-		remap(&geom->uvs, to_old_indices);
-	}
+    while (layer_uv_element)
+    {
+        const int uv_index = layer_uv_element->first_property ? layer_uv_element->first_property->getValue().toInt() : 0;
+        if (uv_index >= 0 && uv_index < Geometry::s_uvs_max)
+        {
+            std::vector<Vec2>& uvs = geom->uvs[uv_index];
+
+            std::vector<Vec2> tmp;
+            std::vector<int> tmp_indices;
+            GeometryImpl::VertexDataMapping mapping;
+            if (!parseVertexData(*layer_uv_element, "UV", "UVIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid UVs");
+            if (!tmp.empty())
+            {
+                uvs.resize(tmp_indices.empty() ? tmp.size() : tmp_indices.size());
+                splat(&uvs, mapping, tmp, tmp_indices, original_indices);
+                remap(&uvs, to_old_indices);
+            }
+        }
+
+        do
+        {
+            layer_uv_element = layer_uv_element->sibling;
+        } while (layer_uv_element && layer_uv_element->id != "LayerElementUV"); //tigra: hashed!
+    }
 
 	const Element* layer_tangent_element = findChild(element, "LayerElementTangents");
 	if (layer_tangent_element)
@@ -2132,8 +2190,11 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 		{
 			if (!parseVertexData(*layer_tangent_element, "Tangent", "TangentIndex", &tmp, &tmp_indices, &mapping))  return Error("Invalid tangets");
 		}
-		splat(&geom->tangents, mapping, tmp, tmp_indices, geom->to_old_vertices);
-		remap(&geom->tangents, to_old_indices);
+		if (!tmp.empty())
+		{
+			splat(&geom->tangents, mapping, tmp, tmp_indices, original_indices);
+			remap(&geom->tangents, to_old_indices);
+		}
 	}
 
 	const Element* layer_color_element = findChild(element, "LayerElementColor");
@@ -2143,8 +2204,11 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 		std::vector<int> tmp_indices;
 		GeometryImpl::VertexDataMapping mapping;
 		if (!parseVertexData(*layer_color_element, "Colors", "ColorIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid colors");
-		splat(&geom->colors, mapping, tmp, tmp_indices, geom->to_old_vertices);
-		remap(&geom->colors, to_old_indices);
+		if (!tmp.empty())
+		{
+			splat(&geom->colors, mapping, tmp, tmp_indices, original_indices);
+			remap(&geom->colors, to_old_indices);
+		}
 	}
 
 	const Element* layer_normal_element = findChild(element, "LayerElementNormal");
@@ -2154,8 +2218,11 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 		std::vector<int> tmp_indices;
 		GeometryImpl::VertexDataMapping mapping;
 		if (!parseVertexData(*layer_normal_element, "Normals", "NormalsIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid normals");
-		splat(&geom->normals, mapping, tmp, tmp_indices, geom->to_old_vertices);
-		remap(&geom->normals, to_old_indices);
+		if (!tmp.empty())
+		{
+			splat(&geom->normals, mapping, tmp, tmp_indices, original_indices);
+			remap(&geom->normals, to_old_indices);
+		}
 	}
 
 	return geom.release();
@@ -2195,13 +2262,13 @@ static bool parseConnections(const Element& root, Scene* scene)
 		}
 
 		Scene::Connection c;
-		c.from = connection->first_property->next->value.toLong();
-		c.to = connection->first_property->next->next->value.toLong();
-		if (connection->first_property->value == "OO")
+		c.from = connection->first_property->next->value.toU64();
+		c.to = connection->first_property->next->next->value.toU64();
+		if (connection->first_property->value == "OO") //tigra: hashed!
 		{
 			c.type = Scene::Connection::OBJECT_OBJECT;
 		}
-		else if (connection->first_property->value == "OP")
+		else if (connection->first_property->value == "OP") //tigra: hashed!
 		{
 			c.type = Scene::Connection::OBJECT_PROPERTY;
 			if (!connection->first_property->next->next->next)
@@ -2262,8 +2329,8 @@ static bool parseTakes(Scene* scene)
 					return false;
 				}
 
-				take.local_time_from = fbxTimeToSeconds(local_time->first_property->value.toLong());
-				take.local_time_to = fbxTimeToSeconds(local_time->first_property->next->value.toLong());
+				take.local_time_from = fbxTimeToSeconds(local_time->first_property->value.toI64());
+				take.local_time_to = fbxTimeToSeconds(local_time->first_property->next->value.toI64());
 			}
 			const Element* reference_time = findChild(*object, "ReferenceTime");
 			if (reference_time)
@@ -2274,8 +2341,8 @@ static bool parseTakes(Scene* scene)
 					return false;
 				}
 
-				take.reference_time_from = fbxTimeToSeconds(reference_time->first_property->value.toLong());
-				take.reference_time_to = fbxTimeToSeconds(reference_time->first_property->next->value.toLong());
+				take.reference_time_from = fbxTimeToSeconds(reference_time->first_property->value.toI64());
+				take.reference_time_to = fbxTimeToSeconds(reference_time->first_property->next->value.toI64());
 			}
 
 			scene->m_take_infos.push_back(take);
@@ -2288,28 +2355,7 @@ static bool parseTakes(Scene* scene)
 }
 
 
-// http://docs.autodesk.com/FBX/2014/ENU/FBX-SDK-Documentation/index.html?url=cpp_ref/class_fbx_time.html,topicNumber=cpp_ref_class_fbx_time_html29087af6-8c2c-4e9d-aede-7dc5a1c2436c,hash=a837590fd5310ff5df56ffcf7c394787e
-enum FrameRate 
-{
-	FrameRate_DEFAULT = 0,
-	FrameRate_120 = 1,
-	FrameRate_100 = 2,
-	FrameRate_60 = 3,
-	FrameRate_50 = 4,
-	FrameRate_48 = 5,
-	FrameRate_30 = 6,
-	FrameRate_30_DROP = 7,
-	FrameRate_NTSC_DROP_FRAME = 8,
-	FrameRate_NTSC_FULL_FRAME = 9,
-	FrameRate_PAL = 10,
-	FrameRate_CINEMA = 11,
-	FrameRate_1000 = 12,
-	FrameRate_CINEMA_ND = 13,
-	FrameRate_CUSTOM = 14,
-};
-
-
-static float getFramerateFromTimeMode(int time_mode)
+static float getFramerateFromTimeMode(FrameRate time_mode, float custom_frame_rate)
 {
 	switch (time_mode)
 	{
@@ -2327,7 +2373,7 @@ static float getFramerateFromTimeMode(int time_mode)
 		case FrameRate_CINEMA: return 24;
 		case FrameRate_1000: return 1000;
 		case FrameRate_CINEMA_ND: return 23.976f;
-		case FrameRate_CUSTOM: return -2;
+		case FrameRate_CUSTOM: return custom_frame_rate;
 	}
 	return -1;
 }
@@ -2343,19 +2389,39 @@ static void parseGlobalSettings(const Element& root, Scene* scene)
 			{
 				if (props70->id == "Properties70")
 				{
-					for (ofbx::Element* time_mode = props70->child; time_mode; time_mode = time_mode->sibling)
+					for (ofbx::Element* node = props70->child; node; node = node->sibling)
 					{
-						if (time_mode->first_property && time_mode->first_property->value == "TimeMode")
-						{
-							ofbx::IElementProperty* prop = time_mode->getProperty(4);
-							if (prop)
-							{
-								ofbx::DataView value = prop->getValue();
-								int time_mode = *(int*)value.begin;
-								scene->m_scene_frame_rate = getFramerateFromTimeMode(time_mode);
-							}
-							break;
+						if (!node->first_property)
+							continue;
+
+#define get_property(name, field, type) if(node->first_property->value == name) \
+						{ \
+							ofbx::IElementProperty* prop = node->getProperty(4); \
+							if (prop) \
+							{ \
+								ofbx::DataView value = prop->getValue(); \
+								scene->m_settings.field = *(type*)value.begin; \
+							} \
 						}
+
+						get_property("UpAxis", UpAxis, UpVector);
+						get_property("UpAxisSign", UpAxisSign, int);
+						get_property("FrontAxis", FrontAxis, FrontVector);
+						get_property("FrontAxisSign", FrontAxisSign, int);
+						get_property("CoordAxis", CoordAxis, CoordSystem);
+						get_property("CoordAxisSign", CoordAxisSign, int);
+						get_property("OriginalUpAxis", OriginalUpAxis, int);
+						get_property("OriginalUpAxisSign", OriginalUpAxisSign, int);
+						get_property("UnitScaleFactor", UnitScaleFactor, float);
+						get_property("OriginalUnitScaleFactor", OriginalUnitScaleFactor, float);
+						get_property("TimeSpanStart", TimeSpanStart, u64);
+						get_property("TimeSpanStop", TimeSpanStop, u64);
+						get_property("TimeMode", TimeMode, FrameRate);
+						get_property("CustomFrameRate", CustomFrameRate, float);
+
+#undef get_property
+
+						scene->m_scene_frame_rate = getFramerateFromTimeMode(scene->m_settings.TimeMode, scene->m_settings.CustomFrameRate);
 					}
 					break;
 				}
@@ -2384,7 +2450,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 			return false;
 		}
 
-		u64 id = object->first_property->value.toLong();
+		u64 id = object->first_property->value.toU64();
 		scene->m_object_map[id] = {object, nullptr};
 		object = object->sibling;
 	}
@@ -2399,7 +2465,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 		{
 			Property* last_prop = iter.second.element->first_property;
 			while (last_prop->next) last_prop = last_prop->next;
-			if (last_prop && last_prop->value == "Mesh")
+			if (last_prop && last_prop->value == "Mesh") //tigra: hashed!
 			{
 				obj = parseGeometry(*scene, *iter.second.element);
 			}
@@ -2560,6 +2626,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 
 					if (mat->textures[type])
 					{
+						break;// This may happen for some models (eg. 2 normal maps in use)
 						Error::s_message = "Invalid material";
 						return false;
 					}
@@ -2638,7 +2705,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 			{
 				Error::s_message = "Failed to postprocess cluster";
 				return false;
-			};
+			}
 		}
 	}
 
@@ -2685,7 +2752,12 @@ Vec3 Object::getScalingPivot() const
 
 Matrix Object::evalLocal(const Vec3& translation, const Vec3& rotation) const
 {
-	Vec3 scaling = getLocalScaling();
+	return evalLocal(translation, rotation, getLocalScaling());
+}
+
+
+Matrix Object::evalLocal(const Vec3& translation, const Vec3& rotation, const Vec3& scaling) const
+{
 	Vec3 rotation_pivot = getRotationPivot();
 	Vec3 scaling_pivot = getScalingPivot();
 	RotationOrder rotation_order = getRotationOrder();
@@ -2758,9 +2830,15 @@ Matrix Object::getGlobalTransform() const
 }
 
 
+Matrix Object::getLocalTransform() const
+{
+    return evalLocal(getLocalTranslation(), getLocalRotation(), getLocalScaling());
+}
+
+
 Object* Object::resolveObjectLinkReverse(Object::Type type) const
 {
-	u64 id = element.getFirstProperty() ? element.getFirstProperty()->getValue().toLong() : 0;
+	u64 id = element.getFirstProperty() ? element.getFirstProperty()->getValue().toU64() : 0;
 	for (auto& connection : scene.m_connections)
 	{
 		if (connection.from == id && connection.to != 0)
@@ -2781,7 +2859,7 @@ const IScene& Object::getScene() const
 
 Object* Object::resolveObjectLink(int idx) const
 {
-	u64 id = element.getFirstProperty() ? element.getFirstProperty()->getValue().toLong() : 0;
+	u64 id = element.getFirstProperty() ? element.getFirstProperty()->getValue().toU64() : 0;
 	for (auto& connection : scene.m_connections)
 	{
 		if (connection.to == id && connection.from != 0)
@@ -2800,7 +2878,7 @@ Object* Object::resolveObjectLink(int idx) const
 
 Object* Object::resolveObjectLink(Object::Type type, const char* property, int idx) const
 {
-	u64 id = element.getFirstProperty() ? element.getFirstProperty()->getValue().toLong() : 0;
+	u64 id = element.getFirstProperty() ? element.getFirstProperty()->getValue().toU64() : 0;
 	for (auto& connection : scene.m_connections)
 	{
 		if (connection.to == id && connection.from != 0)
