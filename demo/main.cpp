@@ -6,10 +6,16 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+
+
+#define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+
+
 #include <memory>
 #include <vector>
 #pragma comment(lib, "opengl32.lib")
+
 
 HWND g_hWnd;
 HDC g_hDC;
@@ -45,7 +51,7 @@ void catProperty(char(&out)[N], const ofbx::IElementProperty& prop)
 	switch (prop.getType())
 	{
 		case ofbx::IElementProperty::DOUBLE: sprintf_s(tmp, "%f", prop.getValue().toDouble()); break;
-		case ofbx::IElementProperty::LONG: sprintf_s(tmp, "%" PRId64, prop.getValue().toLong()); break;
+		case ofbx::IElementProperty::LONG: sprintf_s(tmp, "%" PRId64, prop.getValue().toU64()); break;
 		case ofbx::IElementProperty::INTEGER: sprintf_s(tmp, "%d", prop.getValue().toInt()); break;
 		case ofbx::IElementProperty::STRING: prop.getValue().toString(tmp); break;
 		default: sprintf_s(tmp, "Type: %c", (char)prop.getType()); break;
@@ -54,39 +60,41 @@ void catProperty(char(&out)[N], const ofbx::IElementProperty& prop)
 }
 
 
-void showGUI(ofbx::IElement& element)
+void showGUI(const ofbx::IElement& parent)
 {
-	auto id = element.getID();
-	char label[128];
-	id.toString(label);
-	strcat_s(label, " (");
-	ofbx::IElementProperty* prop = element.getFirstProperty();
-	bool first = true;
-	while (prop)
+	for (const ofbx::IElement* element = parent.getFirstChild(); element; element = element->getSibling())
 	{
-		if(!first)
-			strcat_s(label, ", ");
-		first = false;
-		catProperty(label, *prop);
-		prop = prop->getNext();
-	}
-	strcat_s(label, ")");
+		auto id = element->getID();
+		char label[128];
+		id.toString(label);
+		strcat_s(label, " (");
+		ofbx::IElementProperty* prop = element->getFirstProperty();
+		bool first = true;
+		while (prop)
+		{
+			if (!first)
+				strcat_s(label, ", ");
+			first = false;
+			catProperty(label, *prop);
+			prop = prop->getNext();
+		}
+		strcat_s(label, ")");
 
-	ImGui::PushID((const void*)id.begin);
-	ImGuiTreeElementFlags flags = g_selected_element == &element ? ImGuiTreeElementFlags_Selected : 0;
-	if (!element.getFirstChild()) flags |= ImGuiTreeElementFlags_Leaf;
-	if (ImGui::TreeElementEx(label, flags))
-	{
-		if(ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) g_selected_element = &element;
-		if (element.getFirstChild()) showGUI(*element.getFirstChild());
-		ImGui::TreePop();
+		ImGui::PushID((const void*)id.begin);
+		ImGuiTreeElementFlags flags = g_selected_element == element ? ImGuiTreeElementFlags_Selected : 0;
+		if (!element->getFirstChild()) flags |= ImGuiTreeElementFlags_Leaf;
+		if (ImGui::TreeElementEx(label, flags))
+		{
+			if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) g_selected_element = element;
+			if (element->getFirstChild()) showGUI(*element);
+			ImGui::TreePop();
+		}
+		else
+		{
+			if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) g_selected_element = element;
+		}
+		ImGui::PopID();
 	}
-	else
-	{
-		if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) g_selected_element = &element;
-	}
-	ImGui::PopID();
-	if (element.getSibling()) showGUI(*element.getSibling());
 }
 
 
@@ -113,7 +121,7 @@ void showGUI(ofbx::IElementProperty& prop)
 	char tmp[256];
 	switch (prop.getType())
 	{
-		case ofbx::IElementProperty::LONG: ImGui::Text("Long: %" PRId64, prop.getValue().toLong()); break;
+		case ofbx::IElementProperty::LONG: ImGui::Text("Long: %" PRId64, prop.getValue().toU64()); break;
 		case ofbx::IElementProperty::FLOAT: ImGui::Text("Float: %f", prop.getValue().toFloat()); break;
 		case ofbx::IElementProperty::DOUBLE: ImGui::Text("Double: %f", prop.getValue().toDouble()); break;
 		case ofbx::IElementProperty::INTEGER: ImGui::Text("Integer: %d", prop.getValue().toInt()); break;
@@ -306,7 +314,7 @@ void onGUI()
 		if (ImGui::Begin("Elements"))
 		{
 			const ofbx::IElement* root = g_scene->getRootElement();
-			if (root && root->getFirstChild()) showGUI(*root->getFirstChild());
+			if (root && root->getFirstChild()) showGUI(*root);
 		}
 		ImGui::End();
 

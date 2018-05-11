@@ -4,7 +4,7 @@ ifndef config
 endif
 
 ifndef verbose
-  SILENT = 
+  SILENT = @
 endif
 
 SHELLTYPE := msdos
@@ -57,7 +57,7 @@ ifeq ($(config),debug64)
   ALL_OBJCPPFLAGS    += $(CXXFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -g -m64 -fno-exceptions -fno-rtti
   ALL_RESFLAGS       += $(RESFLAGS) $(DEFINES) $(INCLUDES)
   ALL_LDFLAGS        += $(LDFLAGS) -mwindows -m64
-  LDDEPS             += 
+  LDDEPS             +=
   LIBS               += $(LDDEPS)
   EXTERNAL_LIBS      +=
   LINKCMD             = $(CXX) -o $(TARGET) $(OBJECTS) $(RESOURCES) $(ARCH) $(ALL_LDFLAGS) $(LIBS)
@@ -81,19 +81,19 @@ ifeq ($(config),release64)
   OBJDIR              = obj/x64/Release
   TARGETDIR           = bin/Release
   TARGET              = $(TARGETDIR)/openfbx.exe
-  DEFINES            += -DNDEBUG -DIMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCS -D__STDC_FORMAT_MACROS
+  DEFINES            += -DNDEBUG -DIMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCS
   INCLUDES           += -I"../../../src"
   INCLUDES           +=
   ALL_CPPFLAGS       += $(CPPFLAGS) -MMD -MP -MP $(DEFINES) $(INCLUDES)
-  ALL_ASMFLAGS       += $(ASMFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH)  -fomit-frame-pointer  -m64 -O3 -Wall -Wextra -march=native -funroll-loops -mfpmath=sse -msse2 -msse3 -mssse3 -ffast-math    -Wall -Wunused -Wno-format-y2k  -fno-strict-aliasing     -static  -static-libgcc -static-libstdc++ -s
-  ALL_CFLAGS         += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -fomit-frame-pointer -m64 -O3 -Wall -Wextra -march=native -funroll-loops -mfpmath=sse -msse2 -msse3 -mssse3 -ffast-math    -Wall -Wunused -Wno-format-y2k  -fno-strict-aliasing     -static  -static-libgcc -static-libstdc++ -s
-  ALL_CXXFLAGS       += $(CXXFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH)  -fomit-frame-pointer  -fno-rtti  -m64 -O3 -Wall -Wextra -march=native -funroll-loops -mfpmath=sse -msse2 -msse3 -mssse3 -ffast-math    -Wall -Wunused -Wno-format-y2k  -fno-strict-aliasing     -static  -static-libgcc -static-libstdc++ -s
-  ALL_OBJCFLAGS      += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH)  -fomit-frame-pointer  -m64 -O3 -Wall -Wextra -march=native -funroll-loops -mfpmath=sse -msse2 -msse3 -mssse3 -ffast-math    -Wall -Wunused -Wno-format-y2k  -fno-strict-aliasing     -static  -static-libgcc -static-libstdc++ -s
-  ALL_OBJCPPFLAGS    += $(CXXFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH)  -fomit-frame-pointer   -fno-rtti -m64 -O3 -Wall -Wextra -march=native -funroll-loops -mfpmath=sse -msse2 -msse3 -mssse3 -ffast-math    -Wall -Wunused -Wno-format-y2k  -fno-strict-aliasing     -static  -static-libgcc -static-libstdc++ -s
+  ALL_ASMFLAGS       += $(ASMFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -fomit-frame-pointer -Os -m64
+  ALL_CFLAGS         += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -fomit-frame-pointer -Os -m64
+  ALL_CXXFLAGS       += $(CXXFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -fomit-frame-pointer -Os -m64 -fno-exceptions -fno-rtti
+  ALL_OBJCFLAGS      += $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -fomit-frame-pointer -Os -m64
+  ALL_OBJCPPFLAGS    += $(CXXFLAGS) $(CFLAGS) $(ALL_CPPFLAGS) $(ARCH) -O2 -fomit-frame-pointer -Os -m64 -fno-exceptions -fno-rtti
   ALL_RESFLAGS       += $(RESFLAGS) $(DEFINES) $(INCLUDES)
-  ALL_LDFLAGS        += $(LDFLAGS) -s -mwindows -m64 -static  -static-libgcc -static-libstdc++
+  ALL_LDFLAGS        += $(LDFLAGS) -s -mwindows -m64    -static  -static-libgcc -static-libstdc++
   LDDEPS             +=  -lglfw3 -lglew32 -lgdi32 -lwinmm -luser32 -lglu32 -lopengl32 -lkernel32
-  LIBS               += $(LDDEPS)      
+  LIBS               += $(LDDEPS)
   EXTERNAL_LIBS      +=
   LINKCMD             = $(CXX) -o $(TARGET) $(OBJECTS) $(RESOURCES) $(ARCH) $(ALL_LDFLAGS) $(LIBS)
   OBJECTS := \

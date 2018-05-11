@@ -296,5 +296,3 @@ project "openfbx"
 	
 	configuration "Release"
 		flags { "NoExceptions", "NoFramePointer", "NoIncrementalLink", "NoRTTI", "OptimizeSize", "No64BitChecks" }
-		linkoptions { "/NODEFAULTLIB"}
-		linkoptions { "/MANIFEST:NO"}
